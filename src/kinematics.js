@@ -3,101 +3,81 @@ console.log('kinematics.js loaded');
 function KinematicChain(joints) {
 	var self = this;
 
-	//a, d, alpha and theta are arrays corresponding to the joint from base to tip.
+	//a, d, alpha y theta son arrays que corresponden a los parámetros DH desde la base hasta la herramienta
 	this.a = [];
 	this.d = [];
 	this.alpha = [];
 	this.theta = [];
 
-	//base transform determines where the base of the entire robot sits
-	//in the workspace. j_transforms are individual world coordinates for
-	//each joint in the chain.
+	//base_transform determina dónde se encuentra la base del robot.
+	//j_transforms son los resultados de aplicar las matrices de traslación y rotación DH para cada articulación.
 	this.base_transform = new THREE.Matrix4();
 	this.j_transforms;
 
-	//three.js meshes corresponding to each joint and its corresponding link.
 	this.j_mesh = [];
 	this.l_mesh = [];
 
-	//joint colour is gray. link colours range from red to purple.
+	//Colores para distinguir las partes del robot
 	var l_colours = [0xff2121, 0xff96b21, 0xf7ff21, 0x4dff21, 0x2181ff, 0xb121ff],
 		j_colour = 0xb2b2b2;
 
-	//given current state of each a, d, theta and alpha array, determine
-	//what the end effector position is. a dh matrix is calculated for each
-	//joint, and the base transform is sucessively multiplied up the chain.
+	//Dado el estado de cada cuarteto de parámetros a, d, theta, alpha, aplicar las matrices DH
+	//para determinar la posición de cada articulación y de la herramienta.
 	this.forward = function() {
+		// Matriz de matrices
 		this.j_transforms = [];
-		//console.log('=================== FORWARD START ===================');
+		// Variable que mantiene la matriz sobre la que se aplicará la transformación
 		var transform = this.base_transform.clone();
 		for (var i = 0; i < joints.length; i++) {
-			//console.log(`joint ${i}: [d=${this.d[i]}, a=${this.a[i]}, alpha=${this.alpha[i]}, theta=${this.theta[i]}]`);
+			console.log(`Articulacion ${i}: [d=${this.d[i]}, a=${this.a[i]}, alpha=${this.alpha[i]}, theta=${this.theta[i]}]`);
+			// Aplicar la transformación i a la última articulación que calculamos.
 			this.j_transforms[i] = transform.multiply(this.get_dh_matrix(i)).clone();
 			this.j_mesh[i].matrix = this.j_transforms[i].clone();
 			this.l_mesh[i].matrix = this.j_transforms[i].clone();
 		}
-		//console.log('=================== FORWARD FINISH ==================');
 	}
 
-	//given a Vector3 in world space, perform one iteration of the gradient
-	//descent IK solver. Each value is a gradient that determines which direction
-	//each joint should move.
+	//Dado un vector target, calcular el jacobiano inverso y obtener así los ángulos que aplicar
+	//al estado actual para llegar al estado deseado.
 	this.iterateIK = function(target) {
 		var joint_centre, tip, to_tip, z_axis,
-			jacobian_t = [], jacobian = [], angles;
+			jacobian_t = [], angles;
 
-		//arrays used to produce jacobian matrix
-		var mvx = [], mvy = [], mvz = [], zax = [], zay = [], zaz = [];
-
-		//compute entries for the transposed jacobian
+		//Computar la matriz jacobiana transpuesta
 		for (var i = 0; i < this.theta.length; i++) {
+			//Representa el punto en el espacio donde se encuentra la articulación
 			joint_centre = new THREE.Vector3(...this.j_transforms[i].elements.slice(12, 15));
+
+			//Representa el punto en el espacio donde se encuentra la herramienta
 			tip = new THREE.Vector3(...this.j_transforms[this.theta.length-1].elements.slice(12, 15));
 			
+			//Resta el target del punto de la articulacion
 			to_tip = tip.clone().sub(joint_centre);
 			
+			//Normaliza el vector de la articulación, y realiza un producto cruz con el vector resta para el jacobiano
 			z_axis = new THREE.Vector3(...this.j_transforms[i].elements.slice(8, 11)).normalize();
-
 			mv = z_axis.clone().cross(to_tip);
 
-			//add jacobian matrix array entries
-			mvx.push(mv.x);
-			mvy.push(mv.y);
-			mvz.push(mv.z);
-			zax.push(z_axis.x);
-			zay.push(z_axis.y);
-			zaz.push(z_axis.z);
-			//add jacobian transpose entries
+			//El jacobiano queda conformado, para esta articulación,
+			//como el resultado del producto cruz entre el vector resta y el eje z de la articulación, y el eje z de la articulación
 			jacobian_t.push([mv.x, mv.y, mv.z, z_axis.x, z_axis.y, z_axis.z]);
 		}
 
-		//produce jacobian matrix. although it isn't used currently, 
-		//it can be used to help produce a reasonable scaling factor, alpha.
-		jacobian = [mvx, mvy, mvz, zax, zay, zaz];
-
-		//apply target velocity parameters to the jacobian through dot product
-		//theta_vector = J_transpose . tip_to_target_vector
+		//delta_x(definido por sus ángulos) = J_transpose . tip_to_target_vector
 		angles = dot(jacobian_t, target);
 
-		//determine scaling factor alpha
+		//Determinar el factor de escalado para el método iterativo
 		var alpha = 0.05;
 
-		//console.log('=================== JACOBIAN START ==================');
-		//apply the scaling factor
+		//Aplicar el factor a los ángulos calculados
 		for (var i = 0; i < angles.length; i++) {
-			//console.log(`joint ${i} angle = ${angles[i]}`);
 			angles[i] *= alpha;
 		}
-		//console.log('=================== JACOBIAN FINISH =================');
 
 		return angles;
 	}
 
-	//get a DH transformation matrix given the index of the joint in the
-	//kinematic chain. order of operations is important!
-	//the entire transformation is described in two screw displacements.
-	//one for the current joint, and another for the link connecting this
-	//joint to the next.
+	//Obtiene la matriz de transformación DH para la articulacion i.
 	this.get_dh_matrix = function(index) {
 		var am = a_matrix(this.a[index]),
 			dm = d_matrix(this.d[index]),

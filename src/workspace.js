@@ -131,7 +131,7 @@ function animate() {
 		debug_text = [];
 	//apply angles
 	for (var i = 0; i < chain.theta.length; i++) {
-		debug_text.push(`joint ${i}: [
+		debug_text.push(`Articulación ${i}: [
 			d=${ pad_left(chain.d[i].toFixed(0), 3) }, 
 			a=${ pad_left(chain.a[i].toFixed(0), 3) }, 
 			alpha=${ pad_left(chain.alpha[i].toFixed(0), 4) }, 
@@ -141,6 +141,7 @@ function animate() {
 
 		chain.theta[i] += angles[i];
 	}
+	debug_text.push(`Distancia al punto deseado=${ pad_left(dist_to_target.toFixed(2), 6)}`);
 
 	//display internal state variables
 	state_div.innerHTML = debug_text.join('<br>') + '<br>';
